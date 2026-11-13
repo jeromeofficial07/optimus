@@ -20,7 +20,7 @@ for folder in (DATA_DIR, MODELS_DIR, LOGS_DIR):
 
 # Application identity
 APP_NAME = "OPTIMUS"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 
 # Database file (used from Phase 4 onward)
 DATABASE_PATH = DATA_DIR / "optimus.db"
