@@ -122,7 +122,7 @@ class SettingsPanel(GlassPanel):
         # Toggles
         animations = SettingRow("Animated visualizer", "Smooth real-time animation of the AI orb.", True)
         timestamps = SettingRow("Show timestamps", "Display the time under each message.", True)
-        voice = SettingRow("Voice replies", "Speak answers aloud. Voice arrives in a later phase.", False)
+        voice = SettingRow("Voice replies", "Speak every answer aloud. Spoken questions are always answered by voice.", False)
         animations.switch.toggled.connect(self.animations_toggled)
         timestamps.switch.toggled.connect(self.timestamps_toggled)
         voice.switch.toggled.connect(self.voice_replies_toggled)

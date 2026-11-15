@@ -1,7 +1,7 @@
 """
 Chat widgets:
 
-MessageBubble   - one chat message (user or assistant) with a timestamp.
+MessageBubble   - one chat message (user, assistant or error) with a timestamp.
 TypingIndicator - three bouncing dots shown while the assistant is "thinking".
 ChatView        - the scrolling conversation area that holds all bubbles.
 """
@@ -16,19 +16,39 @@ from PySide6.QtWidgets import (QFrame, QGraphicsOpacityEffect, QHBoxLayout, QLab
 
 from app.ui.theme import Colors, rgba
 
+# Red-tinted style for error messages (applies only to bubbles named "ErrorBubble")
+ERROR_BUBBLE_QSS = """
+QFrame#ErrorBubble {
+    background: rgba(248, 113, 113, 36);
+    border: 1px solid rgba(248, 113, 113, 130);
+    border-top-left-radius: 18px;
+    border-top-right-radius: 18px;
+    border-bottom-left-radius: 5px;
+    border-bottom-right-radius: 18px;
+}
+"""
+
 
 class MessageBubble(QFrame):
-    """A single chat bubble. role is 'user' or 'assistant'."""
+    """A single chat bubble. role is 'user', 'assistant' or 'error'."""
+
+    STYLE_NAMES = {"user": "UserBubble", "assistant": "AssistantBubble", "error": "ErrorBubble"}
 
     def __init__(self, role: str, text: str, parent=None):
         super().__init__(parent)
         self.role = role
+        self._raw_text = text
         # The object name selects the matching style in theme.py
-        self.setObjectName("UserBubble" if role == "user" else "AssistantBubble")
+        self.setObjectName(self.STYLE_NAMES.get(role, "AssistantBubble"))
         self.setAttribute(Qt.WA_StyledBackground, True)
+        if role == "error":
+            self.setStyleSheet(ERROR_BUBBLE_QSS)
 
-        self.text_label = QLabel(text)
+        self.text_label = QLabel()
         self.text_label.setObjectName("BubbleText")
+        # AI answers are rendered as Markdown (lists, bold, code); everything else is plain text
+        self.text_label.setTextFormat(Qt.MarkdownText if role == "assistant" else Qt.PlainText)
+        self.text_label.setText(text)
         self.text_label.setWordWrap(True)
         self.text_label.setTextInteractionFlags(Qt.TextSelectableByMouse)  # Allow copying
         self.text_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
@@ -44,6 +64,11 @@ class MessageBubble(QFrame):
         layout.addWidget(self.time_label)
 
         self.set_font_px(15)
+
+    def append_text(self, text: str):
+        """Add more text to the end of the message (used while an answer is streaming)."""
+        self._raw_text += text
+        self.text_label.setText(self._raw_text)
 
     def set_font_px(self, px: int):
         """Change the message text size (pixels)."""
@@ -151,9 +176,15 @@ class ChatView(QScrollArea):
         anim.finished.connect(lambda: widget.setGraphicsEffect(None))
         anim.start(QAbstractAnimation.DeleteWhenStopped)
 
+    def _snap_to_bottom(self):
+        """Jump (no animation) to the newest text. Used while an answer streams in."""
+        self._scroll_anim.stop()
+        bar = self.verticalScrollBar()
+        bar.setValue(bar.maximum())
+
     # ----- public API -----
     def add_message(self, role: str, text: str, animate: bool = True) -> MessageBubble:
-        """Add a bubble. User bubbles align right, assistant bubbles align left."""
+        """Add a bubble. User bubbles align right; assistant and error bubbles align left."""
         bubble = MessageBubble(role, text)
         bubble.set_font_px(self._font_px)
         bubble.set_timestamp_visible(self._show_timestamps)
@@ -175,6 +206,17 @@ class ChatView(QScrollArea):
             self._fade_in(row)
         QTimer.singleShot(80, self.scroll_to_bottom)  # Wait for layout, then scroll
         return bubble
+
+    def append_to_bubble(self, bubble: MessageBubble, text: str):
+        """
+        Add streamed text to a bubble. If the user was already at the bottom, keep
+        following the new text; if they scrolled up to read, leave the view alone.
+        """
+        bar = self.verticalScrollBar()
+        near_bottom = bar.maximum() - bar.value() < 80
+        bubble.append_text(text)
+        if near_bottom:
+            QTimer.singleShot(0, self._snap_to_bottom)
 
     def show_typing(self):
         """Show the bouncing dots as if the assistant is composing a reply."""
@@ -229,3 +271,15 @@ class ChatView(QScrollArea):
         max_width = self._bubble_max_width()
         for bubble in self._bubbles:
             bubble.setMaximumWidth(max_width)
+        
+    def add_widget(self, widget: QWidget):
+        """Insert any custom widget (action chip, confirmation card) as a chat row."""
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.addWidget(widget)
+        row_layout.addStretch(1)
+        self._layout.insertWidget(self._insert_index(), row)
+        self._fade_in(row)
+        QTimer.singleShot(80, self.scroll_to_bottom)
+        return row

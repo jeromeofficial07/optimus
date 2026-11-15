@@ -6,7 +6,6 @@ a setting means editing exactly one file.
 from pathlib import Path
 
 # Project root = the folder that contains the 'app' folder.
-# Path(__file__) is this file; .parent.parent climbs two levels up.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Folders used by the application
@@ -20,10 +19,103 @@ for folder in (DATA_DIR, MODELS_DIR, LOGS_DIR):
 
 # Application identity
 APP_NAME = "OPTIMUS"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.5.0"
 
-# Database file (used from Phase 4 onward)
+# Database file (used in a later phase)
 DATABASE_PATH = DATA_DIR / "optimus.db"
 
-# Local LLM settings (used from Phase 2 onward)
-OLLAMA_MODEL = "qwen2.5:3b"
+# ---------------------------------------------------------------- Local LLM
+# 127.0.0.1 is used instead of "localhost" because on some Windows setups
+# "localhost" tries IPv6 first and adds a delay.
+OLLAMA_HOST = "http://127.0.0.1:11434"
+OLLAMA_MODEL = "qwen2.5:3b"     # Change this to switch models (must be pulled first)
+OLLAMA_TIMEOUT = 120            # Seconds to wait for Ollama before giving up
+OLLAMA_KEEP_ALIVE = "30m"       # Keep the model loaded in RAM between messages
+
+LLM_TEMPERATURE = 0.7           # Higher = more creative, lower = more focused
+LLM_CONTEXT_TOKENS = 4096       # Model "memory window". Bigger = more RAM and slower
+MAX_HISTORY_MESSAGES = 16       # How many past messages are sent each time (8 exchanges)
+
+# The system prompt tells the model who it is and how it may use its tools.
+SYSTEM_PROMPT = (
+    "You are OPTIMUS, a friendly and capable personal desktop assistant running locally "
+    "on the user's Windows computer. Answer clearly and concisely in short natural "
+    "sentences, because answers may be read aloud. "
+    "You can control this computer ONLY by calling the provided tools. Call a tool only "
+    "when the user asks you to do something on the computer or asks about the computer "
+    "itself; for normal conversation just answer. "
+    "After a tool runs, tell the user the result in one or two short sentences, and show "
+    "lists as numbered lists. Never claim you did something unless a tool reported success. "
+    "If a tool fails or the user declines, say so plainly. If a request needs something no "
+    "tool can do, say you cannot do that yet. If you are unsure about anything else, say so "
+    "instead of guessing."
+)
+
+# ---------------------------------------------------------------- Voice input (Faster-Whisper)
+WHISPER_MODEL = "small.en"      # "base.en" is faster, "small.en" is more accurate
+WHISPER_DEVICE = "cpu"
+WHISPER_COMPUTE_TYPE = "int8"   # Fastest option on a CPU
+WHISPER_LANGUAGE = "en"         # Use None with a multilingual model such as "small"
+WHISPER_DIR = MODELS_DIR / "whisper"
+
+SAMPLE_RATE = 16000             # Whisper expects 16 kHz mono audio
+MIN_RECORD_SECONDS = 0.5        # Shorter recordings are treated as accidental clicks
+MAX_RECORD_SECONDS = 30         # Recording stops by itself after this long
+SILENCE_RMS_THRESHOLD = 0.003   # Below this loudness a recording counts as silence
+
+# ---------------------------------------------------------------- Voice output (Piper)
+PIPER_VOICE = "en_US-lessac-medium"
+PIPER_DIR = MODELS_DIR / "piper"
+PIPER_MODEL_PATH = PIPER_DIR / f"{PIPER_VOICE}.onnx"
+PIPER_LENGTH_SCALE = 1.0        # Above 1.0 = slower speech, below 1.0 = faster
+
+# ---------------------------------------------------------------- Automation (Phase 5)
+# The ONLY folders OPTIMUS may search or open files from. Folders that do not exist are ignored.
+_HOME = Path.home()
+SEARCH_DIRECTORIES = [
+    _HOME / "Documents",
+    _HOME / "Desktop",
+    _HOME / "Downloads",
+    # Add your own project folders here, for example:  Path("D:/Projects"),
+]
+SEARCH_DIRECTORIES = [folder for folder in SEARCH_DIRECTORIES if folder.exists()]
+
+SEARCH_SKIP_DIRS = {"venv", ".venv", "node_modules", ".git", "__pycache__",
+                    "site-packages", "$recycle.bin", "appdata"}
+SEARCH_TIME_LIMIT = 8           # Seconds before a file search gives up
+MAX_SEARCH_RESULTS = 10
+
+SCREENSHOT_DIR = DATA_DIR / "screenshots"
+ACTION_LOG_PATH = LOGS_DIR / "actions.log"
+
+CONFIRMATION_TIMEOUT = 60       # Seconds before an unanswered permission prompt auto-denies
+MAX_TOOL_CALLS_PER_TURN = 3     # Upper limit of actions per message
+TOOL_INTENT_GATE = True         # Only offer tools when the message looks like an action
+
+# Approved applications. 'target' is what gets launched; 'process' lists the process names
+# that may be closed (None = OPTIMUS will never close it). Edit this list to add your own apps.
+APPS = {
+    "notepad": {"target": "notepad.exe", "process": ["notepad.exe"]},
+    "calculator": {"target": "calc.exe", "process": ["CalculatorApp.exe", "Calculator.exe", "calc.exe"]},
+    "paint": {"target": "mspaint.exe", "process": ["mspaint.exe"]},
+    "file explorer": {"target": "explorer.exe", "process": None},
+    "task manager": {"target": "taskmgr.exe", "process": None},
+    "snipping tool": {"target": "snippingtool.exe", "process": ["SnippingTool.exe"]},
+    "settings": {"target": "ms-settings:", "process": None},
+    "edge": {"target": "msedge.exe", "process": ["msedge.exe"]},
+    "chrome": {"target": "chrome.exe", "process": ["chrome.exe"]},
+    "vs code": {"target": r"%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe", "process": ["Code.exe"]},
+    "word": {"target": "winword.exe", "process": ["WINWORD.EXE"]},
+    "excel": {"target": "excel.exe", "process": ["EXCEL.EXE"]},
+    "powerpoint": {"target": "powerpnt.exe", "process": ["POWERPNT.EXE"]},
+}
+
+# Other names people use -> the key in APPS above
+APP_ALIASES = {
+    "calc": "calculator", "notes": "notepad", "note pad": "notepad",
+    "explorer": "file explorer", "files": "file explorer", "file manager": "file explorer",
+    "browser": "edge", "microsoft edge": "edge", "google chrome": "chrome",
+    "vscode": "vs code", "visual studio code": "vs code", "code": "vs code",
+    "ms word": "word", "microsoft word": "word", "ms excel": "excel", "microsoft excel": "excel",
+    "ms paint": "paint", "snipping": "snipping tool", "taskmgr": "task manager",
+}
