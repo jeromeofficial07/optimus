@@ -1,17 +1,18 @@
 """
-ToolExecutor - the single gateway through which every action passes.
+ToolExecutor - runs ONE tool safely:
 
-    validate -> (ask permission if needed) -> run -> log
+    registry check -> validate arguments -> permission -> run -> audit log
 
 The AI never calls tool functions directly. It can only hand a name and
 arguments to execute(), which applies every safety check.
 """
 import logging
-from collections.abc import Callable
-from dataclasses import dataclass
 
-from app.agent.registry import (Risk, Tool, ToolContext, ToolError, ToolRegistry,
-                                ToolResult)
+# ConfirmationRequest and ToolCallbacks live in events.py; importing them here keeps
+# older code such as "from app.agent.executor import ToolCallbacks" working.
+from app.agent.events import ConfirmationRequest, SafeDict, ToolCallbacks  # noqa: F401
+from app.agent.permissions import PermissionManager
+from app.agent.registry import Tool, ToolContext, ToolError, ToolRegistry, ToolResult
 from app.agent.validator import validate_arguments
 from app.config import ACTION_LOG_PATH
 
@@ -25,31 +26,12 @@ if not _log.handlers:
     _log.propagate = False
 
 
-@dataclass
-class ConfirmationRequest:
-    tool: str
-    title: str
-    description: str
-    risk: Risk
-
-
-@dataclass
-class ToolCallbacks:
-    """Hooks the GUI uses to follow what the executor is doing. All are optional."""
-    confirm: Callable[[ConfirmationRequest], bool] | None = None  # Ask the user; True = allowed
-    on_start: Callable[[str], None] | None = None                 # "Opening Notepad..."
-    on_result: Callable[[ToolResult], None] | None = None
-
-
-class _SafeDict(dict):
-    def __missing__(self, key):
-        return "{" + key + "}"
-
-
 class ToolExecutor:
-    def __init__(self, registry: ToolRegistry, context: ToolContext):
+    def __init__(self, registry: ToolRegistry, context: ToolContext,
+                 permissions: PermissionManager | None = None):
         self.registry = registry
         self.context = context
+        self.permissions = permissions or PermissionManager()
 
     def execute(self, name, raw_args, callbacks: ToolCallbacks | None = None) -> ToolResult:
         callbacks = callbacks or ToolCallbacks()
@@ -69,29 +51,16 @@ class ToolExecutor:
                 ToolResult(tool.name, False, f"Request rejected: {exc}"), raw_args, callbacks)
 
         # 3) Sensitive and destructive actions need the user's permission
-        if tool.risk is not Risk.SAFE:
-            request = ConfirmationRequest(
-                tool=tool.name,
-                title="Permission needed" if tool.risk is Risk.SENSITIVE else "Warning: permission needed",
-                description=tool.confirm_text.format_map(_SafeDict(args)) or tool.description,
-                risk=tool.risk,
-            )
-            allowed = False
-            if callbacks.confirm is not None:
-                try:
-                    allowed = bool(callbacks.confirm(request))
-                except Exception:
-                    allowed = False
-            if not allowed:
-                return self._finish(
-                    ToolResult(tool.name, False,
-                               "The user declined this action, so nothing was done.", declined=True),
-                    args, callbacks)
+        if not self.permissions.authorize(tool, args, callbacks):
+            return self._finish(
+                ToolResult(tool.name, False,
+                           "The user declined this action, so nothing was done.", declined=True),
+                args, callbacks)
 
         # 4) Run the predefined function
         if callbacks.on_start:
             try:
-                text = tool.status_text.format_map(_SafeDict(args)) if tool.status_text \
+                text = tool.status_text.format_map(SafeDict(args)) if tool.status_text \
                     else f"Running {tool.name}..."
                 callbacks.on_start(text)
             except Exception:

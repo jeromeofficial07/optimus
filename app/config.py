@@ -119,3 +119,24 @@ APP_ALIASES = {
     "ms word": "word", "microsoft word": "word", "ms excel": "excel", "microsoft excel": "excel",
     "ms paint": "paint", "snipping": "snipping tool", "taskmgr": "task manager",
 }
+
+# ---------------------------------------------------------------- Agent (Phase 6)
+# Project folders the agent can prepare. The folder must be inside SEARCH_DIRECTORIES.
+WORKSPACES = {
+    "python": {"name": "OPTIMUS", "path": BASE_DIR},   # Change this to the project you want prepared
+}
+MAX_PLAN_STEPS = 5              # Longest plan the AI may propose
+MAX_STEP_ATTEMPTS = 2           # A step whose effect cannot be confirmed is retried once
+VERIFY_TIMEOUT = 8              # Seconds to wait for an app to appear after launching it
+REQUIRE_PLAN_APPROVAL = True    # AI-drafted plans with 2+ steps are shown to you first
+
+
+# ---------------------------------------------------------------- Advanced features (Phase 8)
+# Switch any feature off by setting it to False. A feature that is off is never loaded.
+FEATURES = {"file_search": True, "briefing": True, "history": True, "coding": True, "web": True}
+BRIEFING_ON_STARTUP = True      # Show the daily briefing once per day when OPTIMUS starts
+CODE_MAX_CHARS = 9000           # Most code sent to the AI at once (the AI's window is limited)
+WEB_ENABLED = True              # Set to False to keep OPTIMUS completely offline
+WEB_MAX_PAGES = 3               # How many result pages are read for a summary
+WEB_PAGE_CHARS = 2000           # Text taken from each page
+WEB_TIMEOUT = 8                 # Seconds before a web request gives up

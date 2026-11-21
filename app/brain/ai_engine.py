@@ -3,19 +3,25 @@ AIEngine - the bridge between OPTIMUS and the local Ollama server.
 
 Responsibilities:
   * keep the conversation history (context) and trim it
-  * stream normal answers back piece by piece
-  * Phase 5: let the model REQUEST actions (tool calls), hand them to the
-    ToolExecutor for validation, and turn the results into a spoken-style answer
+  * recognise the intent of each message and route it:
+        CHAT       -> stream a normal answer
+        ACTION     -> the model may call tools (each one verified)
+        WORKFLOW   -> run an approved multi-step workflow
+        MULTI_STEP -> the model drafts a plan, code validates it, you approve it, it runs
   * translate low-level network errors into friendly messages
 """
+import json
 from collections.abc import Iterator
 
 import httpx
 import ollama
 from ollama import ResponseError
 
-from app.agent.executor import ToolCallbacks, ToolExecutor
-from app.agent.intent import looks_like_action
+from app.agent.agent import Agent
+from app.agent.events import ToolCallbacks
+from app.agent.executor import ToolExecutor
+from app.agent.intent import Intent, IntentKind, recognize_intent
+from app.agent.plan import PlanError
 from app.config import (LLM_CONTEXT_TOKENS, LLM_TEMPERATURE, MAX_HISTORY_MESSAGES,
                         MAX_TOOL_CALLS_PER_TURN, OLLAMA_HOST, OLLAMA_KEEP_ALIVE, OLLAMA_MODEL,
                         OLLAMA_TIMEOUT, SYSTEM_PROMPT, TOOL_INTENT_GATE)
@@ -48,11 +54,12 @@ class AIEngine:
         self.model = model
         self.system_prompt = system_prompt
         self.max_history = max_history
-        self._executor = executor            # None = plain chatbot without actions
         self._tools_supported = True         # Becomes False if the model rejects tools
         self._follow_up = False              # True if the previous turn used a tool
         self._client = ollama.Client(host=host, timeout=OLLAMA_TIMEOUT)
         self._history: list[dict[str, str]] = []  # Only user and final assistant messages
+        # The agent (planner, controller, verifier, permissions). None = plain chatbot.
+        self._agent: Agent | None = Agent(executor, llm=self) if executor is not None else None
 
     # ------------------------------------------------------------ context
     def reset(self):
@@ -74,24 +81,37 @@ class AIEngine:
     def _options(self) -> dict:
         return {"temperature": LLM_TEMPERATURE, "num_ctx": LLM_CONTEXT_TOKENS}
 
+    # ------------------------------------------------------------ routing
+    def _route(self, user_text: str) -> Intent:
+        if self._agent is None:
+            return Intent(IntentKind.CHAT)
+        intent = recognize_intent(user_text, self._follow_up)
+        if intent.kind is IntentKind.CHAT and not TOOL_INTENT_GATE:
+            return Intent(IntentKind.ACTION)
+        if intent.kind is IntentKind.ACTION and not self._tools_supported:
+            return Intent(IntentKind.CHAT)
+        return intent
+
     # ------------------------------------------------------------ chatting
     def stream_reply(self, user_text: str, callbacks: ToolCallbacks | None = None) -> Iterator[str]:
         """
         Send a message and yield the answer in small pieces.
 
-        If the message looks like a computer action, the model is given the tool list.
-        When it asks for a tool, the executor validates and (if needed) asks the user's
-        permission, then the model writes the final answer from the tool's result.
-
-        The 'finally' block saves only the user message and the final answer to the history,
-        or forgets the question if nothing came back.
+        The 'finally' block saves only the user message and the final answer to the
+        history, or forgets the question if nothing came back.
         """
+        callbacks = callbacks or ToolCallbacks()
         self._history.append({"role": "user", "content": user_text})
         parts: list[str] = []
         used_tools = False
         try:
             messages = self._build_messages()
-            if self._should_use_tools(user_text):
+            intent = self._route(user_text)
+            if intent.kind is IntentKind.WORKFLOW:
+                used_tools = yield from self._workflow_turn(intent.workflow, parts, callbacks)
+            elif intent.kind is IntentKind.MULTI_STEP:
+                used_tools = yield from self._plan_turn(user_text, messages, parts, callbacks)
+            elif intent.kind is IntentKind.ACTION:
                 used_tools = yield from self._tool_turn(messages, parts, callbacks)
             else:
                 yield from self._stream_chat(messages, parts)
@@ -106,15 +126,6 @@ class AIEngine:
             self._follow_up = used_tools
             self._trim_history()
 
-    def _should_use_tools(self, user_text: str) -> bool:
-        if self._executor is None or not self._tools_supported:
-            return False
-        if not TOOL_INTENT_GATE:
-            return True
-        # Follow-ups such as "open the second one" carry no keyword, so the tools stay
-        # available for one more turn after a tool was used.
-        return self._follow_up or looks_like_action(user_text)
-
     def _stream_chat(self, messages: list, parts: list[str]) -> Iterator[str]:
         """Ask the model WITHOUT tools and stream the text."""
         stream = self._client.chat(model=self.model, messages=messages, stream=True,
@@ -125,16 +136,64 @@ class AIEngine:
                 parts.append(piece)
                 yield piece
 
+    # ------------------------------------------------------------ workflows and plans
+    def _workflow_turn(self, name: str, parts: list[str], callbacks) -> Iterator[str]:
+        """Run an approved workflow. The summary comes from the report, not from the model."""
+        agent = self._agent
+        try:
+            plan = agent.planner.from_workflow(name)
+            agent.planner.validate(plan)
+        except PlanError as exc:
+            text = f"I can't run that workflow: {exc}"
+            parts.append(text)
+            yield text
+            return False
+        report = agent.controller.run_plan(plan, callbacks)
+        text = report.summary()
+        parts.append(text)
+        yield text
+        return True
+
+    def _plan_turn(self, user_text: str, messages: list, parts: list[str], callbacks) -> Iterator[str]:
+        """Let the model draft a plan, validate it, get approval, then run it."""
+        agent = self._agent
+        try:
+            plan = agent.planner.from_llm(user_text)
+        except PlanError:
+            # No usable plan: fall back to one-tool-at-a-time behaviour
+            return (yield from self._tool_turn(messages, parts, callbacks))
+        if not agent.permissions.authorize_plan(plan, callbacks):
+            text = "Okay, I cancelled that plan. Nothing was done."
+            parts.append(text)
+            yield text
+            return False
+        report = agent.controller.run_plan(plan, callbacks)
+        text = report.summary()
+        parts.append(text)
+        yield text
+        return True
+
+    def generate_json(self, system: str, user: str, schema: dict) -> dict:
+        """Ask the model for JSON that must match a schema. Used by the task planner."""
+        response = self._client.chat(
+            model=self.model,
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+            format=schema, stream=False,
+            options={"temperature": 0.1, "num_ctx": LLM_CONTEXT_TOKENS},
+            keep_alive=OLLAMA_KEEP_ALIVE,
+        )
+        return json.loads(_field(_field(response, "message"), "content") or "{}")
+
+    # ------------------------------------------------------------ single tool calls
     def _tool_turn(self, messages: list, parts: list[str], callbacks) -> Iterator[str]:
         """
         Ask the model WITH tools available. Returns True if it requested any tool.
-        Step 1: one non-streamed call to see whether the model wants a tool.
-        Step 2: run each requested tool through the executor.
-        Step 3: stream the model's final answer, which now knows the results.
+        Each requested tool goes through the controller (validate, permission, run, verify).
         """
+        controller = self._agent.controller
         try:
             response = self._client.chat(
-                model=self.model, messages=messages, tools=self._executor.registry.schemas(),
+                model=self.model, messages=messages, tools=controller.registry.schemas(),
                 stream=False, options=self._options(), keep_alive=OLLAMA_KEEP_ALIVE)
         except ResponseError as exc:
             if "tool" in str(exc.error).lower():
@@ -160,7 +219,7 @@ class AIEngine:
         for call in list(calls)[:MAX_TOOL_CALLS_PER_TURN]:
             function = _field(call, "function")
             name = _field(function, "name")
-            result = self._executor.execute(name, _field(function, "arguments"), callbacks)
+            result = controller.run_tool(name, _field(function, "arguments"), callbacks)
             summaries.append(result.message.splitlines()[0] if result.message else "")
             messages.append({"role": "tool", "tool_name": name, "content": result.message})
 
@@ -174,10 +233,7 @@ class AIEngine:
 
     # ------------------------------------------------------------ health
     def check_connection(self) -> tuple[str, str]:
-        """
-        Is Ollama running and is the model installed?
-        Returns (kind, message). kind == "ok" means everything is fine.
-        """
+        """Is Ollama running and is the model installed? Returns (kind, message)."""
         try:
             self._client.list()
         except Exception as exc:

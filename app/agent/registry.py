@@ -15,7 +15,9 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.agent.path_guard import PathGuard
-
+# Tools listed here can be run by code (for example the command router) but are never
+# shown to the AI model. This keeps the model's tool list short and reliable.
+HIDDEN_FROM_MODEL: set[str] = set()
 
 class ToolError(Exception):
     """A tool could not do what was asked. The message is shown to the user and the AI."""
@@ -104,4 +106,4 @@ class ToolRegistry:
         return self._tools.get(name)
 
     def schemas(self) -> list[dict]:
-        return [tool.schema() for tool in self._tools.values()]
+        return [tool.schema() for tool in self._tools.values() if tool.name not in HIDDEN_FROM_MODEL]

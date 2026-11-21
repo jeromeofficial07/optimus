@@ -2,8 +2,15 @@
 The complete list of actions OPTIMUS can perform. To add a new capability later:
 write the function, then register it here with a risk level. Nothing else can run.
 """
-from app.agent.registry import Param, Risk, Tool, ToolRegistry
-from app.tools import apps, files, system
+from app.agent.registry import Param, Risk, Tool, ToolError, ToolRegistry
+from app.agent.workflows import WORKFLOWS
+from app.config import WORKSPACES
+from app.tools import apps, files, system, workspace
+
+
+def _handled_by_controller(ctx, **kwargs):
+    """run_workflow is intercepted by the ExecutionController and never reaches here."""
+    raise ToolError("Workflows are run by the execution controller.")
 
 
 def build_default_registry() -> ToolRegistry:
@@ -82,5 +89,38 @@ def build_default_registry() -> ToolRegistry:
         risk=Risk.SENSITIVE,
         status_text="Locking the computer...",
         confirm_text="Lock this computer now? You will need your password or PIN to unlock it.",
+    ))
+
+    # ---- Phase 6: workspace tools and approved workflows
+    registry.register(Tool(
+        name="get_workspace",
+        description="Identify the configured project workspace folder, for example the Python workspace.",
+        func=workspace.get_workspace,
+        params=(Param("kind", "string", "Kind of workspace, for example 'python'",
+                      enum=tuple(WORKSPACES)),),
+        status_text="Identifying the {kind} workspace...",
+    ))
+    registry.register(Tool(
+        name="open_in_vscode",
+        description="Open a project folder in Visual Studio Code.",
+        func=workspace.open_in_vscode,
+        params=(Param("path", "string", "Full path of the project folder", path=True, max_length=400),),
+        status_text="Opening the project in VS Code...",
+    ))
+    registry.register(Tool(
+        name="check_python_environment",
+        description="Inspect a Python project folder: virtual environment, Python version and "
+                    "whether the packages in requirements.txt are installed.",
+        func=workspace.check_python_environment,
+        params=(Param("path", "string", "Full path of the project folder", path=True, max_length=400),),
+        status_text="Checking the project environment...",
+    ))
+    registry.register(Tool(
+        name="run_workflow",
+        description="Run an approved multi-step workflow. Available: "
+                    + "; ".join(f"{w.name} ({w.description})" for w in WORKFLOWS.values()),
+        func=_handled_by_controller,
+        params=(Param("name", "string", "Name of the workflow", enum=tuple(WORKFLOWS)),),
+        status_text="Starting the workflow...",
     ))
     return registry

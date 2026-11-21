@@ -1,6 +1,7 @@
 """
 OPTIMUS entry point.
-Phase 2: launches the desktop interface (no AI connected yet).
+Phase 8A: launches the interface with memory and the advanced features.
+(To go back to Phase 7, use PersistentMainWindow from app.ui.persistent_window instead.)
 """
 import sys
 
@@ -8,7 +9,7 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication
 
 from app.config import APP_NAME
-from app.ui.main_window import MainWindow
+from app.ui.advanced_window import AdvancedMainWindow
 from app.ui.theme import FONT_FAMILY, build_stylesheet
 
 
@@ -19,7 +20,7 @@ def main():
     app.setFont(QFont(FONT_FAMILY, 10))       # Default font for every widget
     app.setStyleSheet(build_stylesheet())     # Apply the dark theme everywhere
 
-    window = MainWindow()
+    window = AdvancedMainWindow()
     window.show()
     sys.exit(app.exec())
 
