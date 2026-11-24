@@ -64,7 +64,7 @@ MAX_RECORD_SECONDS = 30         # Recording stops by itself after this long
 SILENCE_RMS_THRESHOLD = 0.003   # Below this loudness a recording counts as silence
 
 # ---------------------------------------------------------------- Voice output (Piper)
-PIPER_VOICE = "en_US-lessac-medium"
+PIPER_VOICE = "en_US-ryan-medium"
 PIPER_DIR = MODELS_DIR / "piper"
 PIPER_MODEL_PATH = PIPER_DIR / f"{PIPER_VOICE}.onnx"
 PIPER_LENGTH_SCALE = 1.0        # Above 1.0 = slower speech, below 1.0 = faster
@@ -78,7 +78,9 @@ SEARCH_DIRECTORIES = [
     _HOME / "Downloads",
     # Add your own project folders here, for example:  Path("D:/Projects"),
 ]
-SEARCH_DIRECTORIES = [folder for folder in SEARCH_DIRECTORIES if folder.exists()]
+SEARCH_DIRECTORIES = [BASE_DIR] + [
+    folder for folder in SEARCH_DIRECTORIES if folder.exists()
+]
 
 SEARCH_SKIP_DIRS = {"venv", ".venv", "node_modules", ".git", "__pycache__",
                     "site-packages", "$recycle.bin", "appdata"}
@@ -140,3 +142,37 @@ WEB_ENABLED = True              # Set to False to keep OPTIMUS completely offlin
 WEB_MAX_PAGES = 3               # How many result pages are read for a summary
 WEB_PAGE_CHARS = 2000           # Text taken from each page
 WEB_TIMEOUT = 8                 # Seconds before a web request gives up
+
+
+# ---------------------------------------------------------------- Advanced features, part B (Phase 8B)
+MULTILINGUAL_ENABLED = False            # Turn on after the setup steps for languages (see below)
+WHISPER_MULTILINGUAL_MODEL = "small"    # Multilingual speech recognition (about 460 MB, downloaded once)
+WHISPER_CPU_THREADS = 4                 # CPU threads for speech recognition (leaves room for the AI model)
+STT_IDLE_UNLOAD_MINUTES = 15            # Free the speech model's memory after this many idle minutes (0 = never)
+
+# language code -> name and the Piper voice used to speak it. voice=None means "text only".
+# Piper's official voices cover Spanish, French, German and more, but not Hindi or Tamil.
+LANGUAGES = {
+    "en": {"name": "English", "voice": PIPER_VOICE},
+    "es": {"name": "Spanish", "voice": "es_ES-davefx-medium"},
+    "fr": {"name": "French", "voice": "fr_FR-siwis-medium"},
+    "de": {"name": "German", "voice": "de_DE-thorsten-medium"},
+    "hi": {"name": "Hindi", "voice": None},
+    "ta": {"name": "Tamil", "voice": None},
+}
+
+# ---------------------------------------------------------------- Voice style (commander voice)
+VOICE_STYLE = "prime"     # "prime" = deep, authoritative, slightly robotic voice; "normal" = plain voice
+VOICE_PITCH = 0.88        # Lower = deeper (0.80 = very deep, 1.0 = unchanged; limited to 0.7 - 1.0)
+VOICE_ROBOT = 0.30        # Metallic edge: 0 = none, 0.5 = strong (limited to 0.6)
+VOICE_ECHO = 0.45         # Hall echo: 0 = dry, 1 = large hall
+
+# A calm, noble speaking style for the written and spoken answers. Facts, tools and safety
+# are unaffected. Set to False for a neutral tone.
+PERSONA_ENABLED = True
+if PERSONA_ENABLED:
+    SYSTEM_PROMPT = SYSTEM_PROMPT + (
+        " Speak as a calm, noble and wise leader: steady, protective, encouraging and brief. "
+        "Address the user with respect. Never use catchphrases or quotes from any show or movie. "
+        "The style must never change facts, tool use or safety."
+    )

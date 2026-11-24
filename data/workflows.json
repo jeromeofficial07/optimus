@@ -1,0 +1,47 @@
+{
+  "workflows": [
+    {
+      "name": "start_my_day",
+      "title": "Start my day",
+      "description": "Show the daily briefing and open VS Code",
+      "triggers": [
+        "start my day",
+        "morning routine"
+      ],
+      "steps": [
+        {
+          "tool": "daily_briefing",
+          "description": "Show the daily briefing"
+        },
+        {
+          "tool": "open_application",
+          "args": {
+            "name": "vs code"
+          },
+          "description": "Open Visual Studio Code",
+          "on_fail": "continue"
+        }
+      ]
+    },
+    {
+      "name": "end_of_day",
+      "title": "End of day",
+      "description": "Review open tasks and check the computer",
+      "triggers": [
+        "end my day",
+        "wrap up the day"
+      ],
+      "steps": [
+        {
+          "tool": "list_tasks",
+          "description": "Review open tasks"
+        },
+        {
+          "tool": "get_system_usage",
+          "description": "Check the computer",
+          "on_fail": "continue"
+        }
+      ]
+    }
+  ]
+}

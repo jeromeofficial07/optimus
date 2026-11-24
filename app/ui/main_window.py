@@ -40,6 +40,10 @@ NARROW_BREAKPOINT = 1000  # Below this width the sidebar auto-hides
 
 class MainWindow(QMainWindow):
     # Lets worker threads (for example the screenshot tool) ask the GUI to hide/show the window
+        # Subclasses can swap in different speech engines
+    STT_CLASS = STTEngine
+    TTS_CLASS = TTSEngine
+
     window_visibility_requested = Signal(bool)
 
     def __init__(self):
@@ -67,8 +71,8 @@ class MainWindow(QMainWindow):
         self._pending_card = None         # A permission card waiting for Allow/Deny
 
         # ----- voice state -----
-        self.stt = STTEngine()
-        self.tts = TTSEngine()
+        self.stt = self.STT_CLASS()
+        self.tts = self.TTS_CLASS()
         self.speech = SpeechWorker(self.tts, parent=self)
         self._voice_loading = True
         self._stt_ready = False
