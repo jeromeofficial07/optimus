@@ -176,3 +176,6 @@ if PERSONA_ENABLED:
         "Address the user with respect. Never use catchphrases or quotes from any show or movie. "
         "The style must never change facts, tool use or safety."
     )
+
+# ---------------------------------------------------------------- Interface theme
+UI_THEME = "commander"    # "commander" = robotic red / blue / steel HUD, "glass" = the original dark glass look
