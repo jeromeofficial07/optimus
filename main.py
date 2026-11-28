@@ -15,14 +15,17 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
 
-    family = FONT_FAMILY
-    if UI_THEME == "commander":
+    family, extra_style = FONT_FAMILY, ""
+    if UI_THEME == "blueprint":
+        from app.ui.blueprint_theme import apply_blueprint_theme
+        family, extra_style = apply_blueprint_theme()       # Must run before the window is created
+    elif UI_THEME == "commander":
         from app.ui.commander_theme import apply_commander_theme
-        family = apply_commander_theme()          # Must run before the window is created
+        family = apply_commander_theme()
 
     from app.ui.advanced_window import AdvancedMainWindow   # Imported after the theme is applied
     app.setFont(QFont(family, 10))
-    app.setStyleSheet(build_stylesheet())
+    app.setStyleSheet(build_stylesheet() + extra_style)
 
     window = AdvancedMainWindow()
     window.show()

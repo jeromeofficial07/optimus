@@ -178,4 +178,5 @@ if PERSONA_ENABLED:
     )
 
 # ---------------------------------------------------------------- Interface theme
-UI_THEME = "commander"    # "commander" = robotic red / blue / steel HUD, "glass" = the original dark glass look
+UI_THEME = "blueprint"    # "blueprint" = navy technical drawing, "commander" = red/blue robot HUD, "glass" = original look    # "commander" = robotic red / blue / steel HUD, "glass" = the original dark glass look
+UI_PRELOADER = True       # The intro counter and curtain (click it to skip). Set False for an instant start.
